@@ -1,5 +1,21 @@
 # 自动签到脚本
 
+## 环境配置
+
+建议使用 `venv` ：
+
+```bash
+python3 -m venv .venv
+source .venv/bin/activate
+python3 -m pip install -r requirements.txt
+```
+
+退出 `venv` ：
+
+```bash
+deactivate
+```
+
 ## 使用说明
 
 ### Linux
