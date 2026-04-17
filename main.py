@@ -39,7 +39,7 @@ def checkin(token : str):
     from random import randint
     page_stay_ms = randint(4000, 6000)
     payload["_fp"]["page_stay_ms"] = page_stay_ms
-    delta = int(round(time() * 1000)) - payload["_fp"]["mouse_points"]
+    delta = int(round(time() * 1000)) - payload["_fp"]["mouse_points"][0]['t']
     for i in payload["_fp"]["mouse_points"]:
         i['t'] += delta
     sleep(page_stay_ms)
