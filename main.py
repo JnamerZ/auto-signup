@@ -42,7 +42,7 @@ def checkin(token : str):
     delta = int(round(time() * 1000)) - payload["_fp"]["mouse_points"][0]['t']
     for i in payload["_fp"]["mouse_points"]:
         i['t'] += delta
-    sleep(page_stay_ms)
+    sleep(page_stay_ms / 1000)
     ret, exception = 0, ''
     auth_headers = headers.copy()
     auth_headers['Authorization'] = f"Bearer {token}"
