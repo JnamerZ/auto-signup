@@ -1,9 +1,20 @@
 import argparse
 import hmac
 import hashlib
+import json
+import os
 import time
 import uuid
-from curl_cffi import requests
+import sys
+
+try:
+    from curl_cffi import requests as http
+
+    _USE_CURL_CFFI = True
+except ImportError:
+    import requests as http
+
+    _USE_CURL_CFFI = False
 
 BASE_DOMAIN = "sincst.cn"
 BASE_URL = f"https://{BASE_DOMAIN}"
@@ -19,6 +30,12 @@ DEFAULT_HEADERS = {
     "Referer": f"https://{BASE_DOMAIN}/login",
     "Content-Type": "application/json",
 }
+
+
+def _post(url, headers, json_data):
+    if _USE_CURL_CFFI:
+        return http.post(url, headers=headers, json=json_data, impersonate="chrome")
+    return http.post(url, headers=headers, json=json_data)
 
 
 def generate_signature(method, url_path, sign_key, params=None):
@@ -44,9 +61,7 @@ def generate_signature(method, url_path, sign_key, params=None):
 def login(username, password):
     payload = {"student_no": username, "password": password}
     try:
-        resp = requests.post(
-            LOGIN_URL, headers=DEFAULT_HEADERS, json=payload, impersonate="chrome"
-        )
+        resp = _post(LOGIN_URL, DEFAULT_HEADERS, payload)
         res_json = resp.json()
         if res_json.get("code") == 200:
             data = res_json.get("data", {})
@@ -62,7 +77,7 @@ def login(username, password):
                         payload_part + "=" * (-len(payload_part) % 4)
                     )
                     sign_key = json.loads(decoded).get("sign_key")
-                except:
+                except Exception:
                     pass
 
             return token, sign_key
@@ -74,13 +89,22 @@ def login(username, password):
         return None, None
 
 
-def check_in(token, sign_key):
+def check_in(token, sign_key, status="在校", city=None, district=None, reason=None):
     if not token or not sign_key:
         return False, "Missing Token or Sign Key"
 
     method = "POST"
     url_path = "/api/attendance/check-in"
-    payload = {"status": "在校"}
+
+    if status == "不在校":
+        payload = {
+            "status": "不在校",
+            "off_campus_city": city or "",
+            "off_campus_district": district or "",
+            "off_campus_reason": reason or "",
+        }
+    else:
+        payload = {"status": "在校"}
 
     signature, timestamp, nonce = generate_signature(method, url_path, sign_key)
 
@@ -96,9 +120,7 @@ def check_in(token, sign_key):
     )
 
     try:
-        resp = requests.post(
-            CHECKIN_URL, headers=headers, json=payload, impersonate="chrome"
-        )
+        resp = _post(CHECKIN_URL, headers, payload)
         res_json = resp.json()
         if res_json.get("code") == 200:
             return True, "Success"
@@ -108,12 +130,47 @@ def check_in(token, sign_key):
         return False, str(e)
 
 
+def load_config():
+    config_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "config.json")
+    if os.path.exists(config_path):
+        with open(config_path, "r", encoding="utf-8") as f:
+            return json.load(f)
+
+    default_cfg = {
+        "username": "",
+        "password": "",
+        "city": "",
+        "district": "",
+        "reason": ""
+    }
+    with open(config_path, "w", encoding="utf-8") as f:
+        json.dump(default_cfg, f, indent=4, ensure_ascii=False)
+    return default_cfg
+
+
 def main():
+    cfg = load_config()
+
     parser = argparse.ArgumentParser()
-    parser.add_argument("-u", "--username", required=True)
-    parser.add_argument("-p", "--password", required=True)
+    parser.add_argument("-u", "--username", default=cfg.get("username"))
+    parser.add_argument("-p", "--password", default=cfg.get("password"))
+    parser.add_argument(
+        "-s", "--status", choices=["在校", "不在校"], default="在校",
+        help="签到状态（默认：在校）",
+    )
+    parser.add_argument("--city", default=cfg.get("city"), help="不在校时的城市")
+    parser.add_argument("--district", default=cfg.get("district"), help="不在校时的区县")
+    parser.add_argument("--reason", default=cfg.get("reason"), help="不在校原因")
     parser.add_argument("--no-output", action="store_true")
     args = parser.parse_args()
+
+    if not args.username or not args.password:
+        print("请在 config.json 中填写 username 和 password，或通过 -u / -p 参数传入")
+        return 1
+
+    if args.status == "不在校" and not (args.city and args.district and args.reason):
+        print("不在校签到需要提供 --city、--district 和 --reason")
+        return 1
 
     token, sign_key = login(args.username, args.password)
     if not token:
@@ -121,7 +178,9 @@ def main():
             print("Login Process Failed")
         return 1
 
-    success, msg = check_in(token, sign_key)
+    success, msg = check_in(
+        token, sign_key, args.status, args.city, args.district, args.reason
+    )
     if not args.no_output:
         print(msg)
 
@@ -129,4 +188,4 @@ def main():
 
 
 if __name__ == "__main__":
-    exit(main())
+    sys.exit(main())
